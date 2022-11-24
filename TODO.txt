@@ -1,0 +1,34 @@
+Main DB sources:
+    Bookmarks
+    Likes
+    Lists
+
+Traits to keep:
+    Image URLS
+    Highest resolution video URL (configurable?)
+    Original tweet text (strip media link?)
+    Account Username
+    Retweeted content?
+    Alt text
+
+Filesystem organization:
+    Main folder dumped with all images and videos according to liked order
+    Softlinks for Artists
+    Softlinks for Bookmarked
+    Softlinks for Lists
+    Softlinks for Likes
+
+Possible features:
+    Embed metadata?
+    Meta files for each image/video with the original text and such
+    Configurability?
+    Cool-ass CLI
+    Dynamic DB updating
+
+Responibility:
+    TS side:
+        Generating DB
+        Updating DB
+        Authenticating user
+    Rust side:
+        Everything else

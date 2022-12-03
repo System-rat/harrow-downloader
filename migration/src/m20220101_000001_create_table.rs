@@ -87,25 +87,6 @@ impl MigrationTrait for Migration {
                     )
                     .to_owned(),
             )
-            .await?;
-
-        manager
-            .create_table(
-                sea_query::Table::create()
-                    .table(Lists::Table)
-                    .col(ColumnDef::new(Lists::PostId).string().not_null())
-                    .col(ColumnDef::new(Lists::ListName).string().not_null())
-                    .primary_key(Index::create().col(Lists::ListName).col(Lists::PostId))
-                    .foreign_key(
-                        ForeignKeyCreateStatement::new()
-                            .name("fk-lists-post")
-                            .from_tbl(Lists::Table)
-                            .from_col(Lists::PostId)
-                            .to_tbl(Post::Table)
-                            .to_col(Post::Id),
-                    )
-                    .to_owned(),
-            )
             .await
     }
 
@@ -121,9 +102,6 @@ impl MigrationTrait for Migration {
             .await?;
         manager
             .drop_table(sea_query::Table::drop().table(Likes::Table).to_owned())
-            .await?;
-        manager
-            .drop_table(sea_query::Table::drop().table(Lists::Table).to_owned())
             .await
     }
 }
@@ -159,11 +137,4 @@ enum Bookmarks {
     Table,
     Id,
     PostId,
-}
-
-#[derive(Iden)]
-enum Lists {
-    Table,
-    PostId,
-    ListName,
 }

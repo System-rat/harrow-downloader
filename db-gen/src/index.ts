@@ -10,37 +10,34 @@ import { Server } from "node:http";
 import { inspect } from "node:util"
 import { open } from "sqlite";
 import sqlite3 from "sqlite3";
-import { TwitterPaginatedResponse, TwitterResponse, usersIdLikedTweets } from "twitter-api-sdk/dist/types";
+import { getUsersIdBookmarks, TwitterPaginatedResponse, TwitterParams, TwitterResponse, usersIdLikedTweets } from "twitter-api-sdk/dist/types";
 
 config();
 
-function getLikedTweets(client: Client, userId: string, pagination_token?: string): TwitterPaginatedResponse<TwitterResponse<usersIdLikedTweets>> {
-    return client.tweets.usersIdLikedTweets(userId!!, {
-        "tweet.fields": [
-            "attachments",
-            "text",
-            "author_id",
-            "referenced_tweets",
-            "created_at",
-        ],
-        "expansions": [
-            "attachments.media_keys",
-            "author_id",
-            "referenced_tweets.id",
-            "referenced_tweets.id.author_id",
-        ],
-        "media.fields": [
-            "alt_text",
-            "media_key",
-            "type",
-            "url",
-            "variants",
-            "width",
-            "height"
-        ],
-        pagination_token
-    })!!;
-}
+const tweetParams: TwitterParams<getUsersIdBookmarks | usersIdLikedTweets> = {
+    "tweet.fields": [
+        "attachments",
+        "text",
+        "author_id",
+        "referenced_tweets",
+        "created_at",
+    ],
+    "expansions": [
+        "attachments.media_keys",
+        "author_id",
+        "referenced_tweets.id",
+        "referenced_tweets.id.author_id",
+    ],
+    "media.fields": [
+        "alt_text",
+        "media_key",
+        "type",
+        "url",
+        "variants",
+        "width",
+        "height"
+    ],
+};
 
 // Mmmmmmmmmmmmm nodejs
 (async () => {
@@ -67,7 +64,7 @@ function getLikedTweets(client: Client, userId: string, pagination_token?: strin
     });
 
     let s: Server | undefined;
-    const prom = new Promise<void>(async (resolve, reject) => {
+    const prom = new Promise<void>(async (resolve, _) => {
         try {
             authClient.token = JSON.parse(await readFile(join(harrowDir, "auth.json"), "ascii"));
             await authClient.refreshAccessToken();
@@ -109,12 +106,12 @@ function getLikedTweets(client: Client, userId: string, pagination_token?: strin
 
     const userId = (await client.users.findMyUser()).data?.id ?? "";
 
-    let tweetData = await getLikedTweets(client, userId);
+    let tweetData = await client.tweets.usersIdLikedTweets(userId, { ...tweetParams });
 
     let count = tweetData.meta?.result_count ?? 0;
-    console.log(inspect(tweetData, true, null, true));
     let errorCount = 0;
 
+    // Liked tweets
     do {
         if (tweetData.data == undefined) continue;
 
@@ -179,10 +176,83 @@ function getLikedTweets(client: Client, userId: string, pagination_token?: strin
             }
         }
 
-        tweetData = await getLikedTweets(client, userId, tweetData.meta?.next_token);
+        tweetData = await client.tweets.usersIdLikedTweets(userId, { ...tweetParams, pagination_token: tweetData.meta?.next_token });
         console.log(inspect(tweetData, true, null, true));
         count += tweetData.meta?.result_count ?? 0;
     } while (tweetData.meta?.next_token != undefined);
+
+    let tweetBookmarkedData = await client.bookmarks.getUsersIdBookmarks(userId, { ...tweetParams });
+    count += tweetBookmarkedData.meta?.result_count ?? 0;
+
+    // Bookmarked tweets
+    do {
+        if (tweetBookmarkedData.data == undefined) continue;
+
+        for (let post of tweetBookmarkedData.data) {
+            // Insert the post
+            try {
+                await db.run(
+                    "INSERT INTO post (id, account_username, text) VALUES (?, ?, ?)",
+                    post.id,
+                    tweetBookmarkedData.includes?.users?.find((u) => u.id == post.author_id)?.username,
+                    post.text
+                );
+            } catch {
+                errorCount++;
+            }
+
+            // Insert bookmarks if it does not already exist
+            try {
+                if (await db.get("SELECT post_id FROM bookmarks WHERE post_id = ?", post.id) == undefined) {
+                    await db.run("INSERT INTO bookmarks (post_id) VALUES (?)", post.id);
+                }
+            } catch {
+                errorCount++;
+            }
+
+            // Insert media
+            if (post.attachments?.media_keys) {
+                for (let attach of post.attachments.media_keys) {
+                    const media: any = tweetBookmarkedData.includes?.media?.find((m) => m.media_key == attach);
+                    if (media?.type == "photo") {
+                        try {
+                            await db.run(
+                                "INSERT INTO media (id, url, alt_text, type, bitrate, post_id) VALUES (?, ?, ?, ?, ?, ?)",
+                                media.media_key,
+                                media.url,
+                                media.alt_text,
+                                "photo",
+                                0,
+                                post.id
+                            );
+                        } catch {
+                            errorCount++;
+                        }
+                    } else if (media?.type == "animated_gif" || media?.type == "video") {
+                        for (let variant of media?.variants) {
+                            try {
+                                await db.run(
+                                    "INSERT INTO media (id, url, alt_text, type, bitrate, post_id) VALUES (?, ?, ?, ?, ?, ?)",
+                                    media.media_key,
+                                    variant.url,
+                                    media.alt_text,
+                                    media.type,
+                                    variant.bit_rate ?? 0,
+                                    post.id
+                                );
+                            } catch {
+                                errorCount++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        tweetBookmarkedData = await client.bookmarks.getUsersIdBookmarks(userId, { ...tweetParams, pagination_token: tweetBookmarkedData.meta?.next_token });
+        console.log(inspect(tweetBookmarkedData, true, null, true));
+        count += tweetBookmarkedData.meta?.result_count ?? 0;
+    } while (tweetBookmarkedData.meta?.next_token != undefined);
 
     console.log(`Got ${count} requests`);
     console.log("Final error count", errorCount);

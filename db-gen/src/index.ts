@@ -3,14 +3,13 @@ import { config } from "dotenv";
 import { OAuth2User } from "twitter-api-sdk/dist/OAuth2User";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import express from "express";
 import { randomInt } from "node:crypto";
 import { Server } from "node:http";
 import { inspect } from "node:util"
 import { open } from "sqlite";
 import sqlite3 from "sqlite3";
-import { getUsersIdBookmarks, TwitterPaginatedResponse, TwitterParams, TwitterResponse, usersIdLikedTweets } from "twitter-api-sdk/dist/types";
+import { getUsersIdBookmarks, TwitterParams, usersIdLikedTweets } from "twitter-api-sdk/dist/types";
 
 config();
 
@@ -39,6 +38,10 @@ const tweetParams: TwitterParams<getUsersIdBookmarks | usersIdLikedTweets> = {
     ],
 };
 
+async function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // Mmmmmmmmmmmmm nodejs
 (async () => {
     const authClient = new OAuth2User({
@@ -57,6 +60,10 @@ const tweetParams: TwitterParams<getUsersIdBookmarks | usersIdLikedTweets> = {
 
     const client = new Client(authClient);
     const harrowDir = process.argv[2];
+    let delay: number | undefined = undefined;
+    if (process.argv[3] != undefined) {
+        delay = parseInt(process.argv[3]);
+    }
 
     const db = await open({
         filename: join(harrowDir, "db.sqlite"),
@@ -114,6 +121,7 @@ const tweetParams: TwitterParams<getUsersIdBookmarks | usersIdLikedTweets> = {
     // Liked tweets
     do {
         if (tweetData.data == undefined) continue;
+        if (delay != undefined) await sleep(delay);
 
         for (let post of tweetData.data) {
             // Insert the post
@@ -177,7 +185,6 @@ const tweetParams: TwitterParams<getUsersIdBookmarks | usersIdLikedTweets> = {
         }
 
         tweetData = await client.tweets.usersIdLikedTweets(userId, { ...tweetParams, pagination_token: tweetData.meta?.next_token });
-        console.log(inspect(tweetData, true, null, true));
         count += tweetData.meta?.result_count ?? 0;
     } while (tweetData.meta?.next_token != undefined);
 
@@ -187,6 +194,7 @@ const tweetParams: TwitterParams<getUsersIdBookmarks | usersIdLikedTweets> = {
     // Bookmarked tweets
     do {
         if (tweetBookmarkedData.data == undefined) continue;
+        if (delay != undefined) await sleep(delay);
 
         for (let post of tweetBookmarkedData.data) {
             // Insert the post
@@ -250,12 +258,10 @@ const tweetParams: TwitterParams<getUsersIdBookmarks | usersIdLikedTweets> = {
         }
 
         tweetBookmarkedData = await client.bookmarks.getUsersIdBookmarks(userId, { ...tweetParams, pagination_token: tweetBookmarkedData.meta?.next_token });
-        console.log(inspect(tweetBookmarkedData, true, null, true));
         count += tweetBookmarkedData.meta?.result_count ?? 0;
     } while (tweetBookmarkedData.meta?.next_token != undefined);
 
-    console.log(`Got ${count} requests`);
-    console.log("Final error count", errorCount);
+    console.log(`Processed ${count} tweets`);
 })().catch((err) => {
     console.log(err.error)
 }).then();

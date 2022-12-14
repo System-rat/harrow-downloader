@@ -10,8 +10,8 @@ use migration::{Migrator, MigratorTrait};
 use reqwest::Url;
 use sea_orm::{ColumnTrait, ConnectOptions, Database, EntityTrait, QueryFilter};
 use tokio::{fs::File, io::copy, process::Command};
-use tracing::{debug, info, Level};
-use tracing_subscriber::FmtSubscriber;
+use tracing::{debug, info};
+use tracing_subscriber::{filter::LevelFilter, EnvFilter, FmtSubscriber};
 
 use crate::generators::{ArtistsGenerator, BookmarksGenerator, Generator, LikesGenerator};
 
@@ -24,7 +24,11 @@ async fn main() -> Result<(), anyhow::Error> {
     let args = cli::CliArgs::parse();
 
     let sub = FmtSubscriber::builder()
-        .with_max_level(Level::DEBUG)
+        .with_env_filter(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
         .finish();
 
     tracing::subscriber::set_global_default(sub)?;
@@ -62,20 +66,29 @@ async fn main() -> Result<(), anyhow::Error> {
         .to_owned(),
     )
     .await?;
+    info!("Ensuring internal tweet database exists");
     if let Err(err) = Migrator::up(&db, None).await {
         println!("Error occurred during database initialization: {}", err);
     }
 
     if !args.skip_db_regen {
-        let db_gen_cmd = Command::new("bash")
-            .args([
-                "-c",
-                ("cd db-gen; node lib/index.js ".to_string()
-                    + harrow_dir.to_string_lossy().as_ref())
-                .as_str(),
-            ])
-            .spawn();
-        if !db_gen_cmd
+        info!("Fetching tweets (this will take some time)");
+        let mut db_gen_cmd = Command::new("bash");
+        db_gen_cmd.args([
+            "-c",
+            ("cd db-gen; node lib/index.js ".to_string()
+                + harrow_dir.to_string_lossy().as_ref()
+                + " "
+                + args
+                    .api_delay
+                    .map(|d| d.to_string())
+                    .unwrap_or_else(String::new)
+                    .as_str())
+            .as_str(),
+        ]);
+
+        let db_gen_proc = db_gen_cmd.spawn();
+        if !db_gen_proc
             .context("SPAWNING")?
             .wait()
             .await
@@ -87,6 +100,7 @@ async fn main() -> Result<(), anyhow::Error> {
         }
     }
 
+    info!("Downloading posts (This will take some time)");
     for post in Post::find().all(&db).await? {
         let post_media = Media::find()
             .filter(entity::media::Column::PostId.eq(post.id.clone()))
@@ -155,7 +169,7 @@ async fn main() -> Result<(), anyhow::Error> {
     }
 
     // Symlink files
-
+    info!("Generating organizational folders");
     if !args.skip_generators {
         let gens: Vec<(Box<dyn Generator>, &str)> = vec![
             (Box::new(ArtistsGenerator), "Artists"),

@@ -2,6 +2,8 @@
 name = "harrow-downloader"
 version = "0.1.0"
 edition = "2021"
+authors = ["System.rat <system.rodent@gmail.com>", "System.rat <me@system-rat.com>"]
+description = "A twitter utility for downloading/archiving personal likes/bookrmarks"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

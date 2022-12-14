@@ -1,2 +1,3 @@
 target/
 .vscode/
+.pnpm-debug.log

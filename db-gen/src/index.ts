@@ -56,7 +56,7 @@ const tweetParams: TwitterParams<getUsersIdBookmarks | usersIdLikedTweets> = {
     });
 
     const client = new Client(authClient);
-    const harrowDir = join(homedir(), ".local/share/harrow-downloader/");
+    const harrowDir = process.argv[2];
 
     const db = await open({
         filename: join(harrowDir, "db.sqlite"),

@@ -10,11 +10,14 @@ use migration::{Migrator, MigratorTrait};
 use reqwest::Url;
 use sea_orm::{ColumnTrait, ConnectOptions, Database, EntityTrait, QueryFilter};
 use tokio::{fs::File, io::copy, process::Command};
-use tracing::{debug, Level};
+use tracing::{debug, info, Level};
 use tracing_subscriber::FmtSubscriber;
+
+use crate::generators::{ArtistsGenerator, BookmarksGenerator, Generator, LikesGenerator};
 
 mod cli;
 mod generators;
+mod utils;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -39,13 +42,13 @@ async fn main() -> Result<(), anyhow::Error> {
         tokio::fs::remove_file(harrow_dir.join("db.sqlite")).await?;
     }
 
-    if harrow_dir.join("data").exists() {
+    if harrow_dir.join("All").exists() {
         if args.clean_data_directory {
-            tokio::fs::remove_dir_all(harrow_dir.join("data")).await?;
-            tokio::fs::create_dir_all(harrow_dir.join("data")).await?;
+            tokio::fs::remove_dir_all(harrow_dir.join("All")).await?;
+            tokio::fs::create_dir_all(harrow_dir.join("All")).await?;
         }
     } else {
-        tokio::fs::create_dir_all(harrow_dir.join("data")).await?;
+        tokio::fs::create_dir_all(harrow_dir.join("All")).await?;
     }
 
     let db = Database::connect(
@@ -65,7 +68,12 @@ async fn main() -> Result<(), anyhow::Error> {
 
     if !args.skip_db_regen {
         let db_gen_cmd = Command::new("bash")
-            .args(["-c", "cd db-gen; node lib/index.js"])
+            .args([
+                "-c",
+                ("cd db-gen; node lib/index.js ".to_string()
+                    + harrow_dir.to_string_lossy().as_ref())
+                .as_str(),
+            ])
             .spawn();
         if !db_gen_cmd
             .context("SPAWNING")?
@@ -97,11 +105,11 @@ async fn main() -> Result<(), anyhow::Error> {
                         .file_name()
                         .context("invalid filename")?;
 
-                    download_file(&harrow_dir.join("data"), filename, &url).await?;
+                    download_file(&harrow_dir.join("All"), filename, &url).await?;
                     filenames.push(filename.to_owned());
                 }
                 write_metadata(
-                    &harrow_dir.join("data"),
+                    &harrow_dir.join("All"),
                     &post.account_username,
                     if let Some(ref txt) = post.text {
                         txt.as_str()
@@ -129,9 +137,9 @@ async fn main() -> Result<(), anyhow::Error> {
                     .file_name()
                     .context("Invalid filename")?;
 
-                download_file(&harrow_dir.join("data"), filename, &url).await?;
+                download_file(&harrow_dir.join("All"), filename, &url).await?;
                 write_metadata(
-                    &harrow_dir.join("data"),
+                    &harrow_dir.join("All"),
                     &post.account_username,
                     if let Some(ref txt) = post.text {
                         txt.as_str()
@@ -143,6 +151,26 @@ async fn main() -> Result<(), anyhow::Error> {
                 )
                 .await?;
             }
+        }
+    }
+
+    // Symlink files
+
+    if !args.skip_generators {
+        let gens: Vec<(Box<dyn Generator>, &str)> = vec![
+            (Box::new(ArtistsGenerator), "Artists"),
+            (Box::new(LikesGenerator), "Likes"),
+            (Box::new(BookmarksGenerator), "Bookmarks"),
+        ];
+
+        for (gen, folder) in gens {
+            info!("Generating symlinks for: {}", folder);
+            if harrow_dir.join(folder).exists() {
+                tokio::fs::remove_dir_all(harrow_dir.join(folder)).await?;
+            }
+            tokio::fs::create_dir_all(harrow_dir.join(folder)).await?;
+            gen.generate_entires(&db, &harrow_dir.join(folder), &harrow_dir.join("All"))
+                .await?;
         }
     }
 

@@ -63,7 +63,7 @@ cd ..
 ```
 
 | NOTE: If you get an error that a file already exists just run `rm -f lib/*` or the other
-| OS equivalents to remove the dist files
+OS equivalents to remove the dist files
 
 After that you should be able to build and run the CLI through cargo:
 

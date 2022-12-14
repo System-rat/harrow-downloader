@@ -87,6 +87,12 @@ Optionally (enabled by default) a `.txt` file will be generated for every post w
 files. The filename will be comprised of all the images/videos that are within the post with a `__` (double underscore)
 as the separator.
 
+The default storage location for all the data and config is at:
+
+- `~/.local/share/harrow-downloader/` for Linux
+- `%APPDATA%\harrow-downloader\` for Windows
+- `~/Library/Application Support/harrow-downloader/` for macOS
+
 Run the help command for additional options:
 
 ```sh
